@@ -80,14 +80,14 @@ const Login = () => {
             <button
               type="button"
               className="demo-chip"
-              onClick={() => fillCredentials('rahul.cse@college.edu', 'Student@123')}
+              onClick={() => fillCredentials('arjun@student.com', 'Student@123')}
             >
               👨‍🎓 Student
             </button>
             <button
               type="button"
               className="demo-chip"
-              onClick={() => fillCredentials('recruiter@google.com', 'Company@123')}
+              onClick={() => fillCredentials('hr@techcorp.com', 'Company@123')}
             >
               🏢 Recruiter
             </button>

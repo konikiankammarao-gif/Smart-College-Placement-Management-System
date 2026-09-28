@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { IconBell, IconCheckCircle } from './Icons';
+import { IconBell, IconCheckCircle, IconLogOut } from './Icons';
 import api from '../services/api';
 
 const Navbar = ({ pageTitle, toggleSidebar }) => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -170,7 +172,7 @@ const Navbar = ({ pageTitle, toggleSidebar }) => {
           )}
         </div>
 
-        {/* User Pill */}
+        {/* User Pill & Sign Out */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div className="avatar" style={{ width: '34px', height: '34px', fontSize: '13px' }}>
             {user?.name?.charAt(0).toUpperCase() || 'U'}
@@ -178,6 +180,18 @@ const Navbar = ({ pageTitle, toggleSidebar }) => {
           <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>
             {user?.name}
           </div>
+          <button
+            onClick={() => {
+              logout();
+              navigate('/login');
+            }}
+            className="nav-icon-btn"
+            title="Sign Out"
+            aria-label="Sign Out"
+            style={{ width: '34px', height: '34px', border: '1px solid #e2e8f0', borderRadius: '8px' }}
+          >
+            <IconLogOut size={16} />
+          </button>
         </div>
       </div>
     </header>

@@ -11,8 +11,14 @@ const register = async (req, res, next) => {
   try {
     const { name, email, password, role, phone } = req.body;
 
+    if (!name || !email || !password) {
+      return res.status(400).json({ success: false, message: 'Please provide name, email and password' });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+
     // Check if user already exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
       return res.status(400).json({ success: false, message: 'Email already registered' });
     }
@@ -21,7 +27,7 @@ const register = async (req, res, next) => {
     const allowedPublicRoles = ['STUDENT', 'COMPANY'];
     const userRole = allowedPublicRoles.includes(role) ? role : 'STUDENT';
 
-    const user = await User.create({ name, email, password, role: userRole, phone });
+    const user = await User.create({ name, email: normalizedEmail, password, role: userRole, phone });
 
     // Create associated profile
     if (userRole === 'STUDENT') {
@@ -30,19 +36,23 @@ const register = async (req, res, next) => {
       await Company.create({
         userId: user._id,
         companyName: name,
-        hrEmail: email,
+        hrEmail: normalizedEmail,
         hrPhone: phone,
       });
     }
 
-    await createAuditLog({
-      userId: user._id,
-      action: 'REGISTER',
-      entity: 'User',
-      entityId: user._id,
-      description: `New ${userRole} registered: ${email}`,
-      req,
-    });
+    try {
+      await createAuditLog({
+        userId: user._id,
+        action: 'REGISTER',
+        entity: 'User',
+        entityId: user._id,
+        description: `New ${userRole} registered: ${normalizedEmail}`,
+        req,
+      });
+    } catch (e) {
+      // Audit log error shouldn't fail registration
+    }
 
     const token = generateToken(user._id);
 
@@ -79,17 +89,23 @@ const login = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Please provide email and password' });
     }
 
+    const normalizedEmail = email.toLowerCase().trim();
     const mongoose = require('mongoose');
+
     const DEMO_USERS = {
       'admin@smartplacement.com': { _id: '665000000000000000000001', name: 'Super Admin', email: 'admin@smartplacement.com', role: 'SUPER_ADMIN', phone: '9000000000', isActive: true, isVerified: true },
       'officer@smartplacement.com': { _id: '665000000000000000000002', name: 'Placement Officer', email: 'officer@smartplacement.com', role: 'PLACEMENT_OFFICER', phone: '9000000001', isActive: true, isVerified: true },
+      'arjun@student.com': { _id: '665000000000000000000005', name: 'Arjun Sharma', email: 'arjun@student.com', role: 'STUDENT', phone: '9111111111', isActive: true, isVerified: true },
+      'rahul.cse@college.edu': { _id: '665000000000000000000003', name: 'Rahul Sharma', email: 'rahul.cse@college.edu', role: 'STUDENT', phone: '9000000010', isActive: true, isVerified: true },
       'rahul.sharma@college.edu': { _id: '665000000000000000000003', name: 'Rahul Sharma', email: 'rahul.sharma@college.edu', role: 'STUDENT', phone: '9000000010', isActive: true, isVerified: true },
+      'hr@techcorp.com': { _id: '665000000000000000000006', name: 'TechCorp Recruiter', email: 'hr@techcorp.com', role: 'COMPANY', phone: '9222222221', isActive: true, isVerified: true },
+      'recruiter@google.com': { _id: '665000000000000000000004', name: 'Google Recruiter', email: 'recruiter@google.com', role: 'COMPANY', phone: '9000000020', isActive: true, isVerified: true },
       'hr@google.com': { _id: '665000000000000000000004', name: 'Google Recruiter', email: 'hr@google.com', role: 'COMPANY', phone: '9000000020', isActive: true, isVerified: true }
     };
 
     // If database connection is pending, gracefully serve demo credentials
-    if (mongoose.connection.readyState !== 1 && DEMO_USERS[email]) {
-      const demoUser = DEMO_USERS[email];
+    if (mongoose.connection.readyState !== 1 && DEMO_USERS[normalizedEmail]) {
+      const demoUser = DEMO_USERS[normalizedEmail];
       const token = generateToken(demoUser._id);
       return res.json({
         success: true,
@@ -98,7 +114,39 @@ const login = async (req, res, next) => {
       });
     }
 
-    const user = await User.findOne({ email }).select('+password');
+    let user = await User.findOne({ email: normalizedEmail }).select('+password');
+
+    // Auto-provision demo account if requested with matching standard demo passwords
+    if (!user && DEMO_USERS[normalizedEmail]) {
+      const demoData = DEMO_USERS[normalizedEmail];
+      const validDemoPasswords = ['Admin@123', 'Officer@123', 'Student@123', 'Company@123', 'admin123', 'password123'];
+      if (validDemoPasswords.includes(password)) {
+        try {
+          user = await User.create({
+            name: demoData.name,
+            email: normalizedEmail,
+            password: password,
+            role: demoData.role,
+            phone: demoData.phone,
+            isActive: true,
+            isVerified: true
+          });
+          if (demoData.role === 'STUDENT') {
+            await Student.create({ userId: user._id, cgpa: 8.5 });
+          } else if (demoData.role === 'COMPANY') {
+            await Company.create({ userId: user._id, companyName: demoData.name, hrEmail: normalizedEmail });
+          }
+        } catch (e) {
+          const token = generateToken(demoData._id);
+          return res.json({
+            success: true,
+            message: 'Login successful (Demo Mode)',
+            data: { token, user: demoData }
+          });
+        }
+      }
+    }
+
     if (!user || !(await user.matchPassword(password))) {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
@@ -110,14 +158,18 @@ const login = async (req, res, next) => {
     user.lastLogin = new Date();
     await user.save({ validateBeforeSave: false });
 
-    await createAuditLog({
-      userId: user._id,
-      action: 'LOGIN',
-      entity: 'User',
-      entityId: user._id,
-      description: `User logged in: ${email}`,
-      req,
-    });
+    try {
+      await createAuditLog({
+        userId: user._id,
+        action: 'LOGIN',
+        entity: 'User',
+        entityId: user._id,
+        description: `User logged in: ${normalizedEmail}`,
+        req,
+      });
+    } catch (e) {
+      // Ignore audit error
+    }
 
     const token = generateToken(user._id);
 

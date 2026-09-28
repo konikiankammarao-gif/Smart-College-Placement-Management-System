@@ -28,32 +28,81 @@ const { authorize } = require('./middleware/roleMiddleware');
 
 const app = express();
 
-// Security Middleware
-app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
-
-// CORS
+// Comprehensive CORS Configuration
 const allowedOrigins = [
-  process.env.CLIENT_URL,
+  'https://smart-college-placement.vercel.app',
+  'https://smart-college-placement-management-system.onrender.com',
   'http://localhost:5173',
   'http://localhost:3000',
+  'http://localhost:4173',
+  'http://localhost:5000',
   'http://127.0.0.1:5173',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:4173',
+  'http://127.0.0.1:5000',
+  process.env.CLIENT_URL,
 ].filter(Boolean);
 
-app.use(cors({
+const corsOptions = {
   origin: (origin, callback) => {
-    // allow requests with no origin (like mobile apps, curl, or server-to-server)
-    if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+    // Allow non-browser requests (curl, server-to-server, postman)
+    if (!origin) return callback(null, true);
+
+    const isExplicit = allowedOrigins.includes(origin) || allowedOrigins.includes('*');
+    const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+    const isCloudPlatform = 
+      origin.endsWith('.vercel.app') || 
+      origin.endsWith('.onrender.com') || 
+      origin.endsWith('.netlify.app') ||
+      origin.includes('smart-college-placement');
+
+    if (isExplicit || isLocalhost || isCloudPlatform) {
       return callback(null, true);
     }
-    // allow vercel or netlify deploy previews
-    if (origin.endsWith('.vercel.app') || origin.endsWith('.netlify.app') || origin.endsWith('.onrender.com')) {
-      return callback(null, true);
-    }
+    // Permissive fallback so production APIs are accessible by any frontend client
     return callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'Access-Control-Request-Method',
+    'Access-Control-Request-Headers',
+  ],
+  exposedHeaders: ['Authorization', 'Set-Cookie'],
+  maxAge: 86400,
+};
+
+// Enable CORS
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
+// Explicit header fallback middleware for preflights
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers');
+  
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
+// Security Middleware (configured to not block cross-origin resources/images)
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  crossOriginOpenerPolicy: false,
 }));
 
 
@@ -69,7 +118,17 @@ if (process.env.NODE_ENV === 'development') {
 // Static files for uploads
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Health check (Public)
+// Root information & Health check (Public)
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Smart College Placement ERP API Server is Active',
+    frontend: 'https://smart-college-placement.vercel.app',
+    health: '/api/health',
+    timestamp: new Date()
+  });
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ success: true, message: 'Smart Placement API is running', timestamp: new Date() });
 });
